@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>譜読みトレーナー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Music&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one centered column — staff card is the hero, controls and keyboard sit beneath it */
+:root {
+  --bg: #e9edf2;
+  --paper: #fbfcfd;
+  --ink: #1b2333;
+  --muted: #5d6878;
+  --line: #c6ced9;
+  --accent: #2f5d8a;
+  --ok: #23845a;
+  --bad: #c2413b;
+  --key-white: #ffffff;
+  --key-black: #1d232d;
+  --font-ui: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-music: "Noto Music", "Apple Symbols", "Segoe UI Symbol", serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151b; --paper: #1a2029; --ink: #e5e9ef; --muted: #97a2b2; --line: #313a47;
+    --accent: #85acd8; --ok: #5cc28a; --bad: #ef7069; --key-white: #d9dee5; --key-black: #0b0e12;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.6;
+  padding: 24px max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left));
+}
+.wrap { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+h1 { font-size: 1.5rem; margin: 0; letter-spacing: .02em; }
+h1 span { font-family: var(--font-music); color: var(--accent); margin-right: .2em; }
+.sub { color: var(--muted); font-size: .85rem; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+h2 { font-size: 1rem; margin: 0 0 12px; }
+.label { font-size: .75rem; color: var(--muted); letter-spacing: .08em; }
+
+/* settings */
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 24px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.seg { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; width: fit-content; max-width: 100%; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { padding: 6px 14px; cursor: pointer; font-size: .9rem; border-right: 1px solid var(--line); user-select: none; }
+.seg label:last-of-type { border-right: 0; }
+.seg input:checked + label { background: var(--accent); color: var(--paper); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -3px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+button {
+  font: inherit; cursor: pointer; border-radius: 10px; padding: 10px 22px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink);
+}
+button.primary { background: var(--accent); color: var(--paper); border-color: var(--accent); font-weight: 700; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { font-size: .85rem; color: var(--muted); margin: 0; }
+.err { color: var(--bad); font-size: .9rem; margin: 0; }
+
+/* play */
+.hud { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.hud div { display: flex; flex-direction: column; }
+.hud b { font-size: 1.35rem; font-weight: 500; }
+.staff-card { padding: 8px 8px 4px; }
+#staff { width: 100%; height: auto; display: block; color: var(--ink); }
+#staff .clef { font-family: var(--font-music); fill: var(--ink); }
+#staff .acc { font-family: var(--font-music); }
+#staff .note.ok { fill: var(--ok); stroke: var(--ok); }
+#staff .note.skip { fill: var(--bad); stroke: var(--bad); }
+#staff .lbl { fill: var(--ink); font-family: var(--font-ui); }
+#staff .lbl.ok { fill: var(--ok); }
+#staff .lbl.skip { fill: var(--bad); }
+#staff .marker { fill: var(--accent); }
+#staff .ghost { fill: var(--bad); stroke: var(--bad); opacity: .55; }
+#staff .note-g { transform-box: fill-box; }
+.shake { animation: shake .3s; }
+@keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.pop { animation: pop .25s ease-out; }
+@keyframes pop { from { transform: translateX(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .shake, .pop { animation: none; } }
+.feedback { min-height: 1.6em; text-align: center; font-weight: 500; margin: 0; }
+.feedback.ok { color: var(--ok); }
+.feedback.bad { color: var(--bad); }
+.listen { display: flex; align-items: center; gap: 12px; font-size: .9rem; color: var(--muted); flex-wrap: wrap; }
+.meter { flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+.meter i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); }
+.meter .gate { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--bad); }
+#heard { font-family: var(--font-num); color: var(--ink); min-width: 7em; }
+
+/* keyboard */
+.kb-scroll { overflow-x: auto; padding-bottom: 4px; }
+.kb { position: relative; display: flex; height: 110px; width: max-content; }
+.kb .w { width: 28px; height: 110px; background: var(--key-white); border: 1px solid var(--line); border-radius: 0 0 5px 5px; position: relative; cursor: pointer; }
+.kb .w small { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 9px; color: #7a8494; font-family: var(--font-num); }
+.kb .b { position: absolute; top: 0; width: 18px; height: 68px; background: var(--key-black); border-radius: 0 0 4px 4px; z-index: 2; cursor: pointer; }
+.kb .hit-ok { background: var(--ok) !important; }
+.kb .hit-bad { background: var(--bad) !important; }
+.kb .hit { background: var(--accent) !important; }
+
+/* results */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.stat b { display: block; font-family: var(--font-num); font-size: 1.6rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.record { color: var(--ok); font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: .8rem; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.chip.slow { border-color: var(--bad); color: var(--bad); }
+.chip.fast { border-color: var(--ok); color: var(--ok); }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+td.n { font-family: var(--font-num); text-align: right; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span>𝄞</span>譜読みトレーナー</h1>
+    <div class="sub">楽譜の音を見て、本物のピアノで弾くと判定します</div>
+  </header>
+
+  <!-- 設定画面 -->
+  <section id="screen-setup" class="card">
+    <h2>練習の設定</h2>
+    <div class="settings">
+      <div class="field"><span class="label">音部記号</span>
+        <div class="seg">
+          <input type="radio" name="clef" id="clef-t" value="treble"><label for="clef-t">ト音</label>
+          <input type="radio" name="clef" id="clef-b" value="bass"><label for="clef-b">ヘ音</label>
+          <input type="radio" name="clef" id="clef-x" value="both"><label for="clef-x">両方</label>
+        </div></div>
+      <div class="field"><span class="label">音域</span>
+        <div class="seg">
+          <input type="radio" name="range" id="range-s" value="staff"><label for="range-s">五線の中だけ</label>
+          <input type="radio" name="range" id="range-l" value="ledger"><label for="range-l">加線あり</label>
+        </div></div>
+      <div class="field"><span class="label">♯・♭</span>
+        <div class="seg">
+          <input type="radio" name="acc" id="acc-0" value="0"><label for="acc-0">なし</label>
+          <input type="radio" name="acc" id="acc-1" value="1"><label for="acc-1">あり</label>
+        </div></div>
+      <div class="field"><span class="label">一度に出す音の数</span>
+        <div class="seg">
+          <input type="radio" name="group" id="grp-1" value="1"><label for="grp-1">1音</label>
+          <input type="radio" name="group" id="grp-3" value="3"><label for="grp-3">3音</label>
+          <input type="radio" name="group" id="grp-5" value="5"><label for="grp-5">5音</label>
+        </div></div>
+      <div class="field"><span class="label">問題数（音の数）</span>
+        <div class="seg">
+          <input type="radio" name="count" id="count-10" value="10"><label for="count-10">10</label>
+          <input type="radio" name="count" id="count-20" value="20"><label for="count-20">20</label>
+          <input type="radio" name="count" id="count-40" value="40"><label for="count-40">40</label>
+        </div></div>
+      <div class="field"><span class="label">オクターブ判定</span>
+        <div class="seg">
+          <input type="radio" name="oct" id="oct-0" value="0"><label for="oct-0">正確に</label>
+          <input type="radio" name="oct" id="oct-1" value="1"><label for="oct-1">音名だけ合えばOK</label>
+        </div></div>
+      <div class="field"><span class="label">音名の表示</span>
+        <div class="seg">
+          <input type="radio" name="naming" id="nm-s" value="solf"><label for="nm-s">ドレミ</label>
+          <input type="radio" name="naming" id="nm-a" value="abc"><label for="nm-a">CDE</label>
+        </div></div>
+    </div>
+    <div style="height:18px"></div>
+    <div class="row">
+      <button class="primary" id="btn-start">マイクをオンにして始める</button>
+      <button id="btn-start-nomic">マイクなし（画面の鍵盤で）</button>
+    </div>
+    <p class="err" id="mic-err" hidden></p>
+    <div style="height:14px"></div>
+    <p class="hint">ピアノの近くにパソコンを置いてください。音は1つずつ弾くと判定が安定します。MIDI鍵盤をつなげばそれも使えます。</p>
+    <div id="weak-box" hidden>
+      <div style="height:16px"></div>
+      <span class="label">これまでの苦手な音（平均時間が長い順）</span>
+      <div style="height:6px"></div>
+      <div class="chips" id="weak"></div>
+    </div>
+  </section>
+
+  <!-- 練習画面 -->
+  <section id="screen-play" hidden>
+    <div class="wrap">
+      <div class="hud">
+        <div><span class="label">問題</span><b id="hud-prog">0 / 20</b></div>
+        <div><span class="label">この音</span><b id="hud-cur">0.0秒</b></div>
+        <div><span class="label">合計</span><b id="hud-total">0.0秒</b></div>
+        <div><span class="label">ミス</span><b id="hud-miss">0</b></div>
+      </div>
+      <div class="card staff-card"><svg id="staff" viewBox="0 0 400 200" role="img" aria-label="出題中の音符"></svg></div>
+      <p class="feedback" id="feedback">この音を弾いてください</p>
+      <div class="listen">
+        <span>聞こえた音</span><span id="heard">—</span>
+        <div class="meter" title="マイクの音量。赤い線より右で判定します"><i id="meter-bar"></i><span class="gate" id="meter-gate"></span></div>
+      </div>
+      <div class="field"><span class="label">マイク感度（雑音を拾うときは左へ）</span>
+        <input type="range" id="gate" min="0" max="100" value="50"></div>
+      <div class="kb-scroll" id="kb-scroll"><div class="kb" id="kb"></div></div>
+      <div class="row">
+        <button id="btn-skip">わからない（答えを見る）</button>
+        <button id="btn-quit">やめる</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 結果画面 -->
+  <section id="screen-result" class="card" hidden>
+    <h2>結果 <span id="res-record" class="record"></span></h2>
+    <div class="stats">
+      <div class="stat"><span class="label">1音あたり平均</span><b id="res-avg">–</b></div>
+      <div class="stat"><span class="label">合計時間</span><b id="res-total">–</b></div>
+      <div class="stat"><span class="label">正確さ</span><b id="res-acc">–</b></div>
+      <div class="stat"><span class="label">この設定のベスト</span><b id="res-best">–</b></div>
+    </div>
+    <div style="height:18px"></div>
+    <span class="label">出題された音（時間つき・赤は遅かった音）</span>
+    <div style="height:6px"></div>
+    <div class="chips" id="res-chips"></div>
+    <div style="height:20px"></div>
+    <div class="row">
+      <button class="primary" id="btn-again">もう一度</button>
+      <button id="btn-back">設定に戻る</button>
+    </div>
+  </section>
+</div>
+
+<script>
+'use strict';
+// ---------- music basics ----------
+const LETTERS = ['C','D','E','F','G','A','B'];
+const SOLF = ['ド','レ','ミ','ファ','ソ','ラ','シ'];
+const SEMI = [0,2,4,5,7,9,11];
+// step = octave*7 + letterIndex (C4 = 28)
+const CLEFS = {
+  treble: { bottom: 30, staff: [29, 39], ledger: [26, 42] }, // E4 bottom line; D4–G5 / A3–C6
+  bass:   { bottom: 18, staff: [17, 27], ledger: [14, 30] }, // G2 bottom line; F2–B3 / C2–E4
+};
+// sharp spelling for any MIDI number: [letterIndex, acc]
+const PC_SPELL = [[0,0],[0,1],[1,0],[1,1],[2,0],[3,0],[3,1],[4,0],[4,1],[5,0],[5,1],[6,0]];
+const mod = (a, n) => ((a % n) + n) % n;
+const accSym = a => a > 0 ? '♯' : a < 0 ? '♭' : '';
+
+function midiOf(step, acc) { return (Math.floor(step / 7) + 1) * 12 + SEMI[step % 7] + acc; }
+function nameOf(step, acc, naming = settings.naming) {
+  const l = step % 7, oct = Math.floor(step / 7);
+  const sci = LETTERS[l] + accSym(acc) + oct;
+  return naming === 'solf' ? `${SOLF[l]}${accSym(acc)}（${sci}）` : sci;
+}
+function midiName(m, naming) {
+  const [l, a] = PC_SPELL[mod(m, 12)];
+  const oct = Math.floor(m / 12) - 1;
+  return nameOf(oct * 7 + l, a, naming);
+}
+function shortName(n) {
+  const l = n.step % 7;
+  return settings.naming === 'solf'
+    ? SOLF[l] + accSym(n.acc) + Math.floor(n.step / 7)
+    : LETTERS[l] + accSym(n.acc) + Math.floor(n.step / 7);
+}
+
+// ---------- settings & storage ----------
+const DEFAULTS = { clef: 'treble', range: 'staff', acc: '0', group: '1', count: '20', oct: '0', naming: 'solf', gate: 50 };
+function load(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
+function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
+const settings = Object.assign({}, DEFAULTS, load('fuyomi.settings', {}));
+for (const k of ['clef','range','acc','group','count','oct','naming']) {
+  const el = document.querySelector(`input[name=${k}][value="${settings[k]}"]`);
+  if (el) el.checked = true;
+  document.querySelectorAll(`input[name=${k}]`).forEach(i => i.addEventListener('change', () => {
+    settings[k] = i.value; save('fuyomi.settings', settings);
+  }));
+}
+const $ = s => document.querySelector(s);
+$('#gate').value = settings.gate;
+$('#gate').addEventListener('input', e => { settings.gate = +e.target.value; save('fuyomi.settings', settings); });
+// slider 0..100 → RMS threshold 0.04..0.002 (right = more sensitive)
+const gateRms = () => 0.04 * Math.pow(0.05, settings.gate / 100);
+
+// ---------- note generation ----------
+function pickClef() { return settings.clef === 'both' ? (Math.random() < .5 ? 'treble' : 'bass') : settings.clef; }
+// prev: the note played just before; group: notes already in this round (one clef per round)
+function genNote(prev, clef, group = []) {
+  for (let tries = 0; tries < 80; tries++) {
+    const [lo, hi] = CLEFS[clef][settings.range];
+    const step = lo + Math.floor(Math.random() * (hi - lo + 1));
+    let acc = 0;
+    if (settings.acc === '1' && Math.random() < .35) {
+      acc = Math.random() < .5 ? 1 : -1;
+      const l = step % 7;
+      if ((acc === 1 && (l === 2 || l === 6)) || (acc === -1 && (l === 3 || l === 0))) acc = 0;
+    }
+    const midi = midiOf(step, acc);
+    if (prev && mod(midi - prev.midi, 12) === 0) continue;
+    // in a measure an accidental carries over, so never mix spellings of one line/space
+    if (group.some(g => g.step === step && g.acc !== acc)) continue;
+    return { clef, step, acc, midi };
+  }
+}
+
+// ---------- staff drawing ----------
+const svg = $('#staff');
+const noteXs = n => {
+  if (n === 1) return [230];
+  const a = n <= 3 ? 140 : 112, b = n <= 3 ? 330 : 356;
+  return Array.from({ length: n }, (_, i) => a + (b - a) * i / (n - 1));
+};
+// group: notes of one round (same clef). opts: pos (current index), status[i] ('ok'|'skip'),
+// labels[i], ghost (midi of a wrong note), anim, label (big caption for 1-note mode)
+function drawStaff(group, opts = {}) {
+  const multi = group.length > 1;
+  const c = CLEFS[group[0].clef];
+  const top = 66, gap = 14, half = 7, bottomY = top + gap * 4;
+  const yOf = s => bottomY - (s - c.bottom) * half;
+  const xs = noteXs(group.length);
+  const status = opts.status || [];
+  let s = '';
+  for (let i = 0; i < 5; i++) s += `<line x1="16" x2="384" y1="${top + i * gap}" y2="${top + i * gap}" stroke="currentColor" stroke-width="1.3"/>`;
+  s += `<line x1="16" x2="16" y1="${top}" y2="${bottomY}" stroke="currentColor" stroke-width="1.3"/>`;
+  if (group[0].clef === 'treble') s += `<text class="clef" x="22" y="${yOf(c.bottom + 2) + 14}" font-size="56">𝄞</text>`;
+  else s += `<text class="clef" x="24" y="${yOf(c.bottom + 6) + 30}" font-size="50">𝄢</text>`;
+
+  const ledgers = (step, x) => {
+    let out = '';
+    for (let l = c.bottom - 2; l >= step; l -= 2) out += `<line x1="${x - 15}" x2="${x + 15}" y1="${yOf(l)}" y2="${yOf(l)}" stroke="currentColor" stroke-width="1.3"/>`;
+    for (let l = c.bottom + 10; l <= step; l += 2) out += `<line x1="${x - 15}" x2="${x + 15}" y1="${yOf(l)}" y2="${yOf(l)}" stroke="currentColor" stroke-width="1.3"/>`;
+    return out;
+  };
+  const head = (x, y, cls) => `<ellipse class="${cls}" cx="${x}" cy="${y}" rx="8.2" ry="5.8" transform="rotate(-20 ${x} ${y})"/>`;
+  const accText = (x, y, a, cls) => a ? `<text class="acc ${cls}" x="${x - 30}" y="${y + (a > 0 ? 8 : 5)}" font-size="28">${accSym(a)}</text>` : '';
+
+  // ghost: where the wrong note would sit
+  if (opts.ghost != null) {
+    const [l, a] = PC_SPELL[mod(opts.ghost, 12)];
+    const gs = (Math.floor(opts.ghost / 12) - 1) * 7 + l;
+    if (gs >= c.ledger[0] - 2 && gs <= c.ledger[1] + 2) {
+      const gx = multi ? xs[opts.pos] : 310, gy = yOf(gs);
+      s += `<g class="ghost">${ledgers(gs, gx)}${head(gx, gy, '')}${multi ? '' : accText(gx, gy, a, '')}</g>`;
+    }
+  }
+
+  s += `<g class="note-g ${opts.anim ? 'pop' : ''}">`;
+  group.forEach((n, i) => {
+    const X = xs[i], y = yOf(n.step);
+    const up = n.step < c.bottom + 4;
+    s += ledgers(n.step, X);
+    s += `<g class="note ${status[i] || ''}" fill="currentColor" stroke="currentColor">${head(X, y, '')}`;
+    s += up ? `<line x1="${X + 7.6}" x2="${X + 7.6}" y1="${y - 1}" y2="${y - 48}" stroke-width="1.5"/>`
+            : `<line x1="${X - 7.6}" x2="${X - 7.6}" y1="${y + 1}" y2="${y + 48}" stroke-width="1.5"/>`;
+    s += `${accText(X, y, n.acc, '')}</g>`;
+    if (multi && opts.labels && opts.labels[i]) s += `<text class="lbl ${status[i]}" x="${X}" y="192" text-anchor="middle" font-size="13">${opts.labels[i]}</text>`;
+  });
+  s += '</g>';
+  // marker over the note to play next
+  if (multi && opts.pos != null && opts.pos < group.length) {
+    const x = xs[opts.pos];
+    s += `<path class="marker" d="M${x - 6} 8 L${x + 6} 8 L${x} 17 Z"/>`;
+  }
+  if (opts.label) s += `<text class="lbl" x="${xs[0]}" y="190" text-anchor="middle" font-size="15">${opts.label}</text>`;
+  svg.innerHTML = s;
+}
+
+// ---------- on-screen keyboard (C2–C6) ----------
+const KB_LO = 36, KB_HI = 84;
+const kb = $('#kb');
+const keyEls = {};
+(function buildKb() {
+  let wi = 0;
+  for (let m = KB_LO; m <= KB_HI; m++) {
+    const pc = mod(m, 12);
+    const black = [1,3,6,8,10].includes(pc);
+    const el = document.createElement('div');
+    el.dataset.midi = m;
+    if (black) { el.className = 'b'; el.style.left = (wi * 28 - 9) + 'px'; }
+    else {
+      el.className = 'w';
+      if (pc === 0) el.innerHTML = `<small>C${Math.floor(m / 12) - 1}</small>`;
+      wi++;
+    }
+    el.addEventListener('pointerdown', () => played(m, 'click'));
+    kb.appendChild(el); keyEls[m] = el;
+  }
+})();
+function flashKey(m, cls, ms = 600) {
+  const el = keyEls[m]; if (!el) return;
+  el.classList.remove('hit', 'hit-ok', 'hit-bad'); void el.offsetWidth; el.classList.add(cls);
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove(cls), ms);
+}
+
+// ---------- pitch detection (YIN) ----------
+let audioCtx = null, analyser = null, timeBuf = null, yinBuf = null, micOn = false;
+async function startMic() {
+  if (micOn) return true;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  src.connect(analyser);
+  timeBuf = new Float32Array(analyser.fftSize);
+  yinBuf = new Float32Array(analyser.fftSize / 2);
+  micOn = true;
+  requestAnimationFrame(listenLoop);
+  return true;
+}
+function yin(buf, sr) {
+  const W = yinBuf.length, d = yinBuf;
+  const minTau = Math.floor(sr / 1400), maxTau = Math.min(W - 1, Math.floor(sr / 55));
+  d[0] = 1;
+  let running = 0;
+  for (let tau = 1; tau <= maxTau; tau++) {
+    let sum = 0;
+    for (let i = 0; i < W; i++) { const v = buf[i] - buf[i + tau]; sum += v * v; }
+    running += sum;
+    d[tau] = running ? sum * tau / running : 1;
+  }
+  let tau = -1;
+  for (let t = minTau; t <= maxTau; t++) {
+    if (d[t] < 0.15) { while (t + 1 <= maxTau && d[t + 1] < d[t]) t++; tau = t; break; }
+  }
+  if (tau < 0) return -1;
+  const a = d[tau - 1], b = d[tau], c = tau + 1 <= maxTau ? d[tau + 1] : b;
+  const den = a + c - 2 * b;
+  const better = den ? tau + (a - c) / (2 * den) : tau;
+  return sr / better;
+}
+let candidate = null, candCount = 0, lastStable = null, silentFrames = 0;
+function listenLoop() {
+  analyser.getFloatTimeDomainData(timeBuf);
+  let rms = 0;
+  for (let i = 0; i < timeBuf.length; i++) rms += timeBuf[i] * timeBuf[i];
+  rms = Math.sqrt(rms / timeBuf.length);
+  const g = gateRms();
+  const toPct = v => Math.min(100, Math.max(0, (Math.log10(v) + 3.3) / 2.8 * 100));
+  $('#meter-bar').style.width = toPct(rms) + '%';
+  $('#meter-gate').style.left = toPct(g) + '%';
+
+  let midi = null;
+  if (rms > g) {
+    silentFrames = 0;
+    const f = yin(timeBuf, audioCtx.sampleRate);
+    if (f > 0) {
+      const mf = 69 + 12 * Math.log2(f / 440);
+      const m = Math.round(mf);
+      if (Math.abs(mf - m) < 0.45) midi = m;
+    }
+  } else if (++silentFrames > 6) { lastStable = null; }
+
+  if (midi != null && midi === candidate) candCount++;
+  else { candidate = midi; candCount = 1; }
+  if (candidate != null && candCount >= 3 && candidate !== lastStable) {
+    lastStable = candidate;
+    played(candidate, 'mic');
+  }
+  requestAnimationFrame(listenLoop);
+}
+
+// ---------- MIDI keyboard (optional) ----------
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(acc => {
+    const hook = inp => inp.onmidimessage = e => {
+      const [st, note, vel] = e.data;
+      if ((st & 0xf0) === 0x90 && vel > 0) played(note, 'midi');
+    };
+    acc.inputs.forEach(hook);
+    acc.onstatechange = () => acc.inputs.forEach(hook);
+  }).catch(() => {});
+}
+
+// ---------- game ----------
+let game = null;
+function show(id) {
+  for (const s of ['setup', 'play', 'result']) $('#screen-' + s).hidden = s !== id;
+}
+function startGame() {
+  const size = +settings.group;
+  const rounds = Math.max(1, Math.round(+settings.count / size));
+  game = { size, total: rounds * size, results: [], misses: 0, group: null, pos: 0, prev: null, busy: false, ghost: null, curMiss: 0, done: false };
+  show('play');
+  $('#hud-miss').textContent = '0';
+  const sc = $('#kb-scroll');
+  sc.scrollLeft = (14 * 28) - sc.clientWidth / 2 + 28 * 3; // center around C4
+  nextRound();
+}
+function nextRound() {
+  if (game.results.length >= game.total) return finish();
+  const clef = pickClef(), g = [];
+  let prev = game.group ? game.group[game.group.length - 1] : null;
+  for (let i = 0; i < game.size; i++) { const n = genNote(prev, clef, g); g.push(n); prev = n; }
+  game.group = g; game.pos = 0; game.status = []; game.labels = [];
+  game.curMiss = 0; game.ghost = null; game.busy = false;
+  game.shownAt = performance.now();
+  render(true);
+  setFeedback(game.size > 1 ? '左から順番に弾いてください' : 'この音を弾いてください', '');
+}
+function render(anim = false, extra = {}) {
+  drawStaff(game.group, { pos: game.pos, status: game.status, labels: game.labels, ghost: game.ghost, anim, ...extra });
+  $('#hud-prog').textContent = `${Math.min(game.results.length + 1, game.total)} / ${game.total}`;
+}
+const curNote = () => game.group[game.pos];
+// the note before the current one (may still be ringing)
+const prevNote = () => game.pos > 0 ? game.group[game.pos - 1] : game.prev;
+function advance(delayIfRoundEnds) {
+  game.prev = curNote();
+  game.pos++; game.curMiss = 0; game.ghost = null;
+  game.shownAt = performance.now();
+  if (game.pos >= game.size) { game.busy = true; setTimeout(nextRound, delayIfRoundEnds); }
+}
+function setFeedback(text, cls) { const f = $('#feedback'); f.textContent = text; f.className = 'feedback ' + cls; }
+
+function played(m, source) {
+  $('#heard').textContent = midiName(m);
+  if (!game || game.done || game.busy || $('#screen-play').hidden) { flashKey(m, 'hit', 300); return; }
+  const cur = curNote(), t = cur.midi;
+  const ok = m === t || (settings.oct === '1' && mod(m - t, 12) === 0);
+  if (ok) {
+    const dt = (performance.now() - game.shownAt) / 1000;
+    game.results.push({ ...cur, dt, miss: game.curMiss });
+    game.status[game.pos] = 'ok';
+    game.labels[game.pos] = shortName(cur);
+    flashKey(t, 'hit-ok', 700);
+    setFeedback(`正解！ ${nameOf(cur.step, cur.acc)} — ${dt.toFixed(2)}秒`, 'ok');
+    advance(game.size > 1 ? 800 : 650);
+    render(false, game.size === 1 ? { label: nameOf(cur.step, cur.acc) } : {});
+  } else {
+    // the previous note may still be ringing; don't count it
+    const p = prevNote();
+    if (source === 'mic' && p && mod(m - p.midi, 12) === 0) return;
+    game.misses++; game.curMiss++;
+    $('#hud-miss').textContent = game.misses;
+    flashKey(m, 'hit-bad', 600);
+    game.ghost = m;
+    render();
+    setFeedback(`ちがいます：${midiName(m)} が聞こえました`, 'bad');
+    svg.classList.remove('shake'); void svg.offsetWidth; svg.classList.add('shake');
+  }
+}
+$('#btn-skip').addEventListener('click', () => {
+  if (!game || game.busy) return;
+  const cur = curNote();
+  game.misses++; game.curMiss++;
+  $('#hud-miss').textContent = game.misses;
+  game.results.push({ ...cur, dt: (performance.now() - game.shownAt) / 1000, miss: game.curMiss, skipped: true });
+  game.status[game.pos] = 'skip';
+  game.labels[game.pos] = shortName(cur);
+  flashKey(cur.midi, 'hit-ok', 1800);
+  setFeedback(`答え：${nameOf(cur.step, cur.acc)}（鍵盤の緑の場所）`, '');
+  advance(2200);
+  render(false, game.size === 1 ? { label: '答え：' + nameOf(cur.step, cur.acc) } : {});
+});
+$('#btn-quit').addEventListener('click', () => { game.done = true; renderWeak(); show('setup'); });
+
+setInterval(() => {
+  if (!game || game.done || $('#screen-play').hidden) return;
+  const total = game.results.reduce((a, r) => a + r.dt, 0) + (game.busy ? 0 : (performance.now() - game.shownAt) / 1000);
+  if (!game.busy) $('#hud-cur').textContent = ((performance.now() - game.shownAt) / 1000).toFixed(1) + '秒';
+  $('#hud-total').textContent = total.toFixed(1) + '秒';
+}, 100);
+
+function finish() {
+  game.done = true;
+  const rs = game.results;
+  const total = rs.reduce((a, r) => a + r.dt, 0);
+  const avg = total / rs.length;
+  const correct = rs.filter(r => !r.skipped).length;
+  const accPct = Math.round(correct / (correct + game.misses) * 100) || 0;
+
+  const key = ['clef','range','acc','group','count','oct'].map(k => settings[k]).join('|');
+  const bests = load('fuyomi.best', {});
+  const prevBest = bests[key];
+  const isRecord = accPct >= 80 && (!prevBest || avg < prevBest.avg);
+  if (isRecord) { bests[key] = { avg, acc: accPct, at: Date.now() }; save('fuyomi.best', bests); }
+
+  // per-note history for weak-note list
+  const hist = load('fuyomi.hist', {});
+  for (const r of rs) {
+    const k = `${r.step}|${r.acc}`;
+    const h = hist[k] || { n: 0, sum: 0 };
+    h.n++; h.sum += Math.min(r.dt, 15) + r.miss * 2;
+    hist[k] = h;
+  }
+  save('fuyomi.hist', hist);
+
+  $('#res-avg').textContent = avg.toFixed(2) + '秒';
+  $('#res-total').textContent = total.toFixed(1) + '秒';
+  $('#res-acc').textContent = accPct + '%';
+  const best = bests[key];
+  $('#res-best').textContent = best ? best.avg.toFixed(2) + '秒' : '–';
+  $('#res-record').textContent = isRecord ? (prevBest ? '自己ベスト更新！' : '初記録！') : '';
+  const sorted = rs.map(r => r.dt).sort((a, b) => a - b);
+  const slowCut = sorted[Math.floor(sorted.length * .75)], fastCut = sorted[Math.floor(sorted.length * .25)];
+  $('#res-chips').innerHTML = rs.map(r => {
+    const cls = r.skipped || r.dt >= slowCut ? 'slow' : r.dt <= fastCut ? 'fast' : '';
+    const clefMark = settings.clef === 'both' ? (r.clef === 'treble' ? 'ト ' : 'ヘ ') : '';
+    return `<span class="chip ${cls}">${clefMark}${shortName(r)} ${r.skipped ? '答えを見た' : r.dt.toFixed(1) + '秒'}${r.miss && !r.skipped ? ' ✕' + r.miss : ''}</span>`;
+  }).join('');
+  show('result');
+}
+
+function renderWeak() {
+  const hist = load('fuyomi.hist', {});
+  const list = Object.entries(hist).filter(([, h]) => h.n >= 2)
+    .map(([k, h]) => { const [step, acc] = k.split('|').map(Number); return { step, acc, avg: h.sum / h.n }; })
+    .sort((a, b) => b.avg - a.avg).slice(0, 8);
+  $('#weak-box').hidden = !list.length;
+  $('#weak').innerHTML = list.map(n => `<span class="chip slow">${shortName(n)} ${n.avg.toFixed(1)}秒</span>`).join('');
+}
+
+$('#btn-start').addEventListener('click', async () => {
+  $('#mic-err').hidden = true;
+  try { await startMic(); startGame(); }
+  catch (e) {
+    $('#mic-err').hidden = false;
+    $('#mic-err').textContent = 'マイクを使えませんでした。ブラウザのアドレスバーでマイクを「許可」にしてから、もう一度押してください。（' + (e.name || e.message) + '）';
+  }
+});
+$('#btn-start-nomic').addEventListener('click', startGame);
+$('#btn-again').addEventListener('click', startGame);
+$('#btn-back').addEventListener('click', () => { renderWeak(); show('setup'); });
+renderWeak();
+
+// preview: show a sample note behind the setup so the staff glyphs are loaded
+drawStaff([{ clef: 'treble', step: 32, acc: 0, midi: 67 }]);
+</script>
+</body>
+</html>
